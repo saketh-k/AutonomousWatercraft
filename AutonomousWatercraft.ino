@@ -14,6 +14,12 @@
 #define dfPlayerTx 9
 #define ESC1PIN 10
 #define ESC2PIN 11
+#define RUDDERPIN 5
+
+//Motion Definitions
+#define STEER_MAX 180
+#define STEER_MIN 0
+#define ESC_SPEED 90
 
 SoftwareSerial mp3Serial(dfPlayerRX,dfPlayerTx);
 DFRobotDFPlayerMini dfPlayer;
@@ -22,17 +28,19 @@ Pixy2 pixy;
 
 Servo esc1;
 Servo esc2;
+Servo rudder;
 
 void initMp3(int);
 void processMp3();
 void printDetail(uint8_t, int);
+int findServoHeadingOfBlock(Block);
+Block getOldestFromPixy();
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(115200);
     
+    //Setup Cannons
     pinMode(pumpPin, OUTPUT);
-    pinMode(ESC1PIN, OUTPUT);
-    pinMode(ESC2PIN, OUTPUT);
 
     //Setup ESCs
     esc1.attach(ESC1PIN, 1000, 2000);
@@ -40,6 +48,9 @@ void setup() {
     esc2.attach(ESC1PIN, 1000, 2000);
     esc2.writeMicroseconds(1000);
     
+    //Setup Rudder
+    rudder.attach(5)
+
     //Initialize MP3 player at max volume.
     initMp3(30);
 
@@ -48,8 +59,18 @@ void setup() {
 }
 
 void loop() {
-    Serial.println("LEmon");
-    delay(100);
+    pixy.ccc.getBlocks();
+    if (pixy.ccc.numBlocks > 0) {
+        // TODO add a check for block being larger than a minimum size etc.
+        findServoHeadingOfBlock(getOldestFromPixy());
+        esc1.write(ESC_SPEED);
+        esc2.write(ESC_SPEED);
+    }
+    else {
+        esc1.write(0);
+        esc2.write(0);
+    }
+    delay(20);
 }
 
 void initMp3(int volume) {
@@ -73,26 +94,28 @@ void processMp3() {
 
     int mp3ReadType = 0, mp3Read = 0;
     
-    mp3ReadType = dfPlayer.readType();
-    mp3Read = dfPlayer.read();
-    
-    // if debug mode on, print info about sd card
-    if(DEBUG_ARDUINO) {printDetail(mp3ReadType, mp3Read);}
+    if (dfPlayer.available()) {
+        mp3ReadType = dfPlayer.readType();
+        mp3Read = dfPlayer.read();
+        
+        // if debug mode on, print info about sd card
+        if(DEBUG_ARDUINO) {printDetail(mp3ReadType, mp3Read);}
 
-    if (mp3ReadType == DFPlayerPlayFinished) {
-        // Player just finished this song, will move on to next:
+        if (mp3ReadType == DFPlayerPlayFinished) {
+            // Player just finished this song, will move on to next:
 
-        dfPlayer.play(mp3Read+1); // Won't work for last song
-        if (mp3Read%2 == 1) {
-            //If last song was odd, cannon soundeffect should be next.
-            digitalWrite(pumpPin, HIGH);
+            dfPlayer.play(mp3Read+1%9); // Won't work for last song
+            if (mp3Read%2 == 1) {
+                //If last song was odd, cannon soundeffect should be next.
+                digitalWrite(pumpPin, HIGH);
+            }
+            else {
+                //Last song was even, so it must have been a cannon sound effect
+                digitalWrite(pumpPin, LOW);
+            }
+
+            /*if (mp3Read == LAST SONG) {restart play?}*/
         }
-        else {
-            //Last song was even, so it must have been a cannon sound effect
-            digitalWrite(pumpPin, LOW);
-        }
-
-        /*if (mp3Read == LAST SONG) {restart play?}*/
     }
 
 }
@@ -159,6 +182,24 @@ void interpretMp3(uint8_t type, int value){
   
 }
 
-int findHeadingOfOldestObject() {
-    
+int findServoHeadingOfBlock(Block oldestBlock) {
+    int ctr = 0;
+    ctr = oldestBlock.m_x + oldestBlock.m_width/2;
+    return map(ctr, 0, 320, STEER_MIN, STEER_MAX);
+}
+
+Block getOldestFromPixy() {
+    int oldestObjectAge=-1;
+    Block oldestBlock;
+    Block currBlock;
+
+    for (int i=0; i<pixy.ccc.numBlocks; i++) {
+        currBlock = pixy.ccc.blocks[i];
+        if (currBlock.m_age > oldestObjectAge) {
+            oldestBlock = currBlock;
+            oldestObjectAge = currBlock.m_age;
+        }
+    }    
+    //if (pixy.ccc.numBlocks == 0) {return NULL;}
+    return oldestBlock;
 }
