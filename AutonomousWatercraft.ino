@@ -19,7 +19,15 @@
 //Motion Definitions
 #define STEER_MAX 90
 #define STEER_MIN 170
+
+//Differential Steering Definitions
+#define DIFF_STEERING true
+#define DIFF_STEER_DIFFERENCE 20
+// #define DIFF_STEER_MIN_SPEED 20
+// #define DIFF_STEER_MAX_SPEED 40
 #define ESC_SPEED 30
+
+#define CAN_CYCLES 10
 
 SoftwareSerial mp3Serial(dfPlayerRX,dfPlayerTx);
 DFRobotDFPlayerMini dfPlayer;
@@ -35,9 +43,12 @@ void processMp3();
 void interpretMp3(uint8_t type, int value);
 int findServoHeadingOfBlock(Block);
 Block getOldestFromPixy();
+
 int rudderAngle = 0;
 int desiredRudderAngle = 0;
-float error;
+float error = 0;
+int cannonState = 0;
+int cannonCount = 0;
 
 void setup() {
     Serial.begin(115200);
@@ -64,6 +75,8 @@ void setup() {
     // initMp3(30);
 
     pixy.init();
+    
+    
 
 }
 
@@ -75,24 +88,8 @@ void loop() {
         rudderAngle = rudderAngle * 0.8 + desiredRudderAngle * 0.2;
         
         rudder.write(rudderAngle);
-        esc1.write(ESC_SPEED);
-        esc2.write(ESC_SPEED);
+        controlESCs(desiredRudderAngle);
         Serial.println(rudderAngle);
-        error = .1*desiredRudderAngle;
-
-        // //differential
-        // if (desiredRudderAngle > 0){
-        //     esc1.write(ESC_SPEED);
-        //     esc2.write(ESC_SPEED);
-        // }
-        // else if (desiredRudderAngle < 0){
-        //     esc1.write(ESC_SPEED);
-        //     esc2.write(ESC_SPEED);
-        // }
-        // else{
-        //     esc1.write(ESC_SPEED);
-        //     esc2.write(ESC_SPEED);
-        // }
         
     }
     else {
@@ -102,6 +99,14 @@ void loop() {
         Serial.println("Nothing Detected");
     }
     //processMp3();
+    cannonCount++;
+    if (cannonCount > CAN_CYCLES) {
+        cannonCount = 0;
+        cannonState = !cannonState;
+        Serial.print("Cannon Set to");
+        Serial.print(cannonState);
+    }
+    digitalWrite(pumpPin, cannonState);
     delay(200);
 }
 
@@ -212,6 +217,17 @@ void interpretMp3(uint8_t type, int value){
       break;
   }
   
+}
+
+void controlESCs(int servoAngle) {
+    //Convert a desired heading into a differential steering input for the boat to follow.
+    //If DIFFSTEERING is False will only power servos when seeing something
+    int diffAmt = 0;
+    if (DIFF_STEERING) {
+        int diffAmt = map(servoAngle, STEER_MIN, STEER_MAX, -DIFF_STEER_DIFFERENCE, DIFF_STEER_DIFFERENCE);
+    }
+    esc1.write(ESC_SPEED + diffAmt);
+    esc2.write(ESC_SPEED - diffAmt);
 }
 
 int findServoHeadingOfBlock(Block oldestBlock) {
