@@ -11,15 +11,15 @@
 //pin definitions
 #define pumpPin 3
 #define dfPlayerRX 8
-#define dfPlayerTx 9
-#define ESC1PIN 10
-#define ESC2PIN 11
+#define dfPlayerTx 7
+#define ESC1PIN 9
+#define ESC2PIN 10
 #define RUDDERPIN 5
 
 //Motion Definitions
-#define STEER_MAX 180
-#define STEER_MIN 0
-#define ESC_SPEED 90
+#define STEER_MAX 90
+#define STEER_MIN 170
+#define ESC_SPEED 30
 
 SoftwareSerial mp3Serial(dfPlayerRX,dfPlayerTx);
 DFRobotDFPlayerMini dfPlayer;
@@ -32,9 +32,12 @@ Servo rudder;
 
 void initMp3(int);
 void processMp3();
-void printDetail(uint8_t, int);
+void interpretMp3(uint8_t type, int value);
 int findServoHeadingOfBlock(Block);
 Block getOldestFromPixy();
+int rudderAngle = 0;
+int desiredRudderAngle = 0;
+float error;
 
 void setup() {
     Serial.begin(115200);
@@ -45,14 +48,20 @@ void setup() {
     //Setup ESCs
     esc1.attach(ESC1PIN, 1000, 2000);
     esc1.writeMicroseconds(1000);
-    esc2.attach(ESC1PIN, 1000, 2000);
-    esc2.writeMicroseconds(1000);
-    
-    //Setup Rudder
-    rudder.attach(5)
+    esc2.attach(ESC2PIN, 1000, 2000);
+    esc2.writeMicroseconds(1000);    
+    delay(1000);
+    esc1.write(90);
+    esc2.write(90);
+    delay(100);
+    esc1.write(0);
+    esc2.write(0);
 
+    //Setup Rudder
+    rudder.attach(RUDDERPIN);
+    rudder.write((STEER_MAX + STEER_MIN)/2);
     //Initialize MP3 player at max volume.
-    initMp3(30);
+    // initMp3(30);
 
     pixy.init();
 
@@ -62,15 +71,38 @@ void loop() {
     pixy.ccc.getBlocks();
     if (pixy.ccc.numBlocks > 0) {
         // TODO add a check for block being larger than a minimum size etc.
-        findServoHeadingOfBlock(getOldestFromPixy());
+        desiredRudderAngle = findServoHeadingOfBlock(getOldestFromPixy());
+        rudderAngle = rudderAngle * 0.8 + desiredRudderAngle * 0.2;
+        
+        rudder.write(rudderAngle);
         esc1.write(ESC_SPEED);
         esc2.write(ESC_SPEED);
+        Serial.println(rudderAngle);
+        error = .1*desiredRudderAngle;
+
+        // //differential
+        // if (desiredRudderAngle > 0){
+        //     esc1.write(ESC_SPEED);
+        //     esc2.write(ESC_SPEED);
+        // }
+        // else if (desiredRudderAngle < 0){
+        //     esc1.write(ESC_SPEED);
+        //     esc2.write(ESC_SPEED);
+        // }
+        // else{
+        //     esc1.write(ESC_SPEED);
+        //     esc2.write(ESC_SPEED);
+        // }
+        
     }
     else {
         esc1.write(0);
         esc2.write(0);
+        desiredRudderAngle = (STEER_MAX + STEER_MIN)/2;
+        Serial.println("Nothing Detected");
     }
-    delay(20);
+    //processMp3();
+    delay(200);
 }
 
 void initMp3(int volume) {
@@ -99,7 +131,7 @@ void processMp3() {
         mp3Read = dfPlayer.read();
         
         // if debug mode on, print info about sd card
-        if(DEBUG_ARDUINO) {printDetail(mp3ReadType, mp3Read);}
+        if(DEBUG_ARDUINO) {interpretMp3(mp3ReadType, mp3Read);}
 
         if (mp3ReadType == DFPlayerPlayFinished) {
             // Player just finished this song, will move on to next:
@@ -185,7 +217,7 @@ void interpretMp3(uint8_t type, int value){
 int findServoHeadingOfBlock(Block oldestBlock) {
     int ctr = 0;
     ctr = oldestBlock.m_x + oldestBlock.m_width/2;
-    return map(ctr, 0, 320, STEER_MIN, STEER_MAX);
+    return map(ctr, 0, 320, STEER_MIN, STEER_MAX); 
 }
 
 Block getOldestFromPixy() {
@@ -195,11 +227,13 @@ Block getOldestFromPixy() {
 
     for (int i=0; i<pixy.ccc.numBlocks; i++) {
         currBlock = pixy.ccc.blocks[i];
+        //if (DEBUG_ARDUINO) {currBlock.print();}
         if (currBlock.m_age > oldestObjectAge) {
             oldestBlock = currBlock;
             oldestObjectAge = currBlock.m_age;
         }
     }    
-    //if (pixy.ccc.numBlocks == 0) {return NULL;}
+    if (DEBUG_ARDUINO) {oldestBlock.print();}
+
     return oldestBlock;
 }
