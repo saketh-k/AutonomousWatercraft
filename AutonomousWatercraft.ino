@@ -51,12 +51,13 @@ int cannonState = 0;
 int cannonCount = 0;
 
 void setup() {
+    //Begin serial communication for debugging
     Serial.begin(115200);
     
     //Setup Cannons
     pinMode(pumpPin, OUTPUT);
 
-    //Setup ESCs
+    //Setup + Initialize ESCs
     esc1.attach(ESC1PIN, 1000, 2000);
     esc1.writeMicroseconds(1000);
     esc2.attach(ESC2PIN, 1000, 2000);
@@ -74,6 +75,7 @@ void setup() {
     //Initialize MP3 player at max volume.
     // initMp3(30);
 
+    //Initialize Pixy Cam 2
     pixy.init();
     
     
@@ -81,18 +83,22 @@ void setup() {
 }
 
 void loop() {
+
     pixy.ccc.getBlocks();
     if (pixy.ccc.numBlocks > 0) {
-        // TODO add a check for block being larger than a minimum size etc.
+        //If pixy detects a red object, make sure it's the oldest object
         desiredRudderAngle = findServoHeadingOfBlock(getOldestFromPixy());
+        // Apply a digital filter to prevent servo from moving too quickly
         rudderAngle = rudderAngle * 0.8 + desiredRudderAngle * 0.2;
         
         rudder.write(rudderAngle);
+        //Set ESC speed to move forward and (if Diffsteer is on) differential thrust
         controlESCs(desiredRudderAngle);
         Serial.println(rudderAngle);
         
     }
     else {
+        //If nothing is detected, turn off the motors and set the rudder to be straight
         esc1.write(0);
         esc2.write(0);
         desiredRudderAngle = (STEER_MAX + STEER_MIN)/2;
@@ -101,6 +107,7 @@ void loop() {
     //processMp3();
     cannonCount++;
     if (cannonCount > CAN_CYCLES) {
+        //After ~1 second toggle the cannon either on or off
         cannonCount = 0;
         cannonState = !cannonState;
         Serial.print("Cannon Set to");
@@ -111,6 +118,7 @@ void loop() {
 }
 
 void initMp3(int volume) {
+    //Initialize communication with MP3 Module
     mp3Serial.begin(9600);
     Serial.println(F("Testing mp3"));
     if (!dfPlayer.begin(mp3Serial)) {  //Use softwareSerial to communicate with mp3.
@@ -158,6 +166,7 @@ void processMp3() {
 }
 
 void interpretMp3(uint8_t type, int value){
+    //Unused helper function to communicate with MP3 Module
   switch (type) {
     case TimeOut:
       Serial.println(F("Time Out!"));
@@ -224,26 +233,27 @@ void controlESCs(int servoAngle) {
     //If DIFFSTEERING is False will only power servos when seeing something
     int diffAmt = 0;
     if (DIFF_STEERING) {
-        int diffAmt = map(servoAngle, STEER_MIN, STEER_MAX, -DIFF_STEER_DIFFERENCE, DIFF_STEER_DIFFERENCE);
+        diffAmt = map(servoAngle, STEER_MIN, STEER_MAX, -DIFF_STEER_DIFFERENCE, DIFF_STEER_DIFFERENCE);
     }
     esc1.write(ESC_SPEED + diffAmt);
     esc2.write(ESC_SPEED - diffAmt);
 }
 
 int findServoHeadingOfBlock(Block oldestBlock) {
+    //Given a pixy block use feed forward control to convert that to a servo heading
     int ctr = 0;
     ctr = oldestBlock.m_x + oldestBlock.m_width/2;
     return map(ctr, 0, 320, STEER_MIN, STEER_MAX); 
 }
 
 Block getOldestFromPixy() {
+    // Get all detected blocks from pixy and return oldest block
     int oldestObjectAge=-1;
     Block oldestBlock;
     Block currBlock;
 
     for (int i=0; i<pixy.ccc.numBlocks; i++) {
         currBlock = pixy.ccc.blocks[i];
-        //if (DEBUG_ARDUINO) {currBlock.print();}
         if (currBlock.m_age > oldestObjectAge) {
             oldestBlock = currBlock;
             oldestObjectAge = currBlock.m_age;
